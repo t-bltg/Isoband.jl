@@ -5,13 +5,15 @@ using isoband_jll
 
 export isobands, isolines
 
-
-struct ReturnValue
-    xs::Ptr{Cdouble}
-    ys::Ptr{Cdouble}
+struct ReturnValue{T}
+    xs::Ptr{T}
+    ys::Ptr{T}
     ids::Ptr{Cint}
     len::Cint
 end
+
+isoband_float_type(_::Type{Float64}) = Cdouble
+isoband_float_type(_::Type{Float32}) = Cfloat
 
 """
     isobands(xs, ys, zs, low::Real, high::Real)
@@ -23,13 +25,16 @@ Vector{Int} field `id`. Each unique id marks one polygon, the polygons can be ou
 holes and are given in no particular order. Therefore, they must probably be post-processed to
 feed them to plotting packages.
 """
-function isobands(xs, ys, zs, low::Real, high::Real)
-    results = isobands(xs, ys, zs, Float64[low], Float64[high])
+isobands(xs, ys, zs, low::Real, high::Real) = isobands(xs, ys, zs, float(low), float(high))
+
+function isobands(xs, ys, zs, low::T, high::T) where {T <: AbstractFloat}
+    results = isobands(xs, ys, zs, T[low], T[high])
     results[1]
 end
 
 function isobands(xs::AbstractVector, ys::AbstractVector, zs::AbstractMatrix, lows::AbstractVector, highs::AbstractVector)
-    isobands(Float64.(xs), Float64.(ys), Float64.(zs), Float64.(lows), Float64.(highs))
+    F = promote_type(eltype(xs), eltype(ys), eltype(zs), eltype(lows), eltype(highs)) |> float
+    isobands(F.(xs), F.(ys), F.(zs), F.(lows), F.(highs))
 end
 
 """
@@ -43,12 +48,12 @@ holes and are given in no particular order. Therefore, they must probably be pos
 feed them to plotting packages.
 """
 function isobands(
-        xs::Vector{Float64},
-        ys::Vector{Float64},
-        zs::Matrix{Float64},
-        low_values::Vector{Float64},
-        high_values::Vector{Float64})
-
+    xs::Vector{T},
+    ys::Vector{T},
+    zs::Matrix{T},
+    low_values::Vector{T},
+    high_values::Vector{T},
+) where {T <: AbstractFloat}
     lenx = length(xs)
     leny = length(ys)
     nrow, ncol = size(zs)
@@ -60,30 +65,52 @@ function isobands(
 
     nbands = length(low_values)
 
-    result = ccall((:isobands_impl, libisoband),
-        Ptr{ReturnValue},
-        (Ptr{Cdouble},
-            Cint,
-            Ptr{Cdouble},
-            Cint,
-            Ptr{Cdouble},
-            Cint,
-            Cint,
-            Ptr{Cdouble},
-            Ptr{Cdouble},
-            Cint),
-        xs, length(xs),
-        ys, length(ys),
-        zs, size(zs, 1), size(zs, 2),
-        low_values, high_values, nbands)
+    result = if (F = isoband_float_type(T)) ≡ Float64
+        ccall((:isobands_impl, libisoband), Ptr{ReturnValue{Cdouble}}, (
+                Ptr{Cdouble},
+                Cint,
+                Ptr{Cdouble},
+                Cint,
+                Ptr{Cdouble},
+                Cint,
+                Cint,
+                Ptr{Cdouble},
+                Ptr{Cdouble},
+                Cint,
+            ),
+            xs, length(xs),
+            ys, length(ys),
+            zs, size(zs, 1), size(zs, 2),
+            low_values, high_values, nbands
+        )
+    elseif F ≡ Float32
+        ccall((:isobands32_impl, libisoband), Ptr{ReturnValue{Cfloat}}, (
+                Ptr{Cfloat},
+                Cint,
+                Ptr{Cfloat},
+                Cint,
+                Ptr{Cfloat},
+                Cint,
+                Cint,
+                Ptr{Cfloat},
+                Ptr{Cfloat},
+                Cint,
+            ),
+            xs, length(xs),
+            ys, length(ys),
+            zs, size(zs, 1), size(zs, 2),
+            low_values, high_values, nbands
+        )
+    else
+        throw(ArgumentError("$F is invalid"))
+    end
     
-
-    returnvalues = unsafe_wrap(Vector{ReturnValue}, result, nbands, own = true)
+    returnvalues = unsafe_wrap(Vector{ReturnValue{F}}, result, nbands, own = true)
 
     groups = map(returnvalues) do rv
         n = rv.len
-        xsr = unsafe_wrap(Vector{Cdouble}, rv.xs, n, own = true)
-        ysr = unsafe_wrap(Vector{Cdouble}, rv.ys, n, own = true)
+        xsr = unsafe_wrap(Vector{F}, rv.xs, n, own = true)
+        ysr = unsafe_wrap(Vector{F}, rv.ys, n, own = true)
         idr = unsafe_wrap(Vector{Cint}, rv.ids, n, own = true)
         (x = xsr, y = ysr, id = idr)
     end
@@ -99,13 +126,17 @@ The rows of `zs` correspond to the linear spaced values in `ys` and the columns 
 Returns a NamedTuple with two Vector{Float64} fields `x` and `y`, and the
 Vector{Int} field `id`. Each unique id marks one line.
 """
-function isolines(xs, ys, zs, value::Real)
-    results = isolines(xs, ys, zs, Float64[value])
+
+isolines(xs, ys, zs, value::Real) = isolines(xs, ys, zs, float(value))
+
+function isolines(xs, ys, zs, value::T) where {T <: AbstractFloat}
+    results = isolines(xs, ys, zs, T[value])
     results[1]
 end
 
 function isolines(xs::AbstractVector, ys::AbstractVector, zs::AbstractMatrix, values::AbstractVector)
-    isolines(Float64.(xs), Float64.(ys), Float64.(zs), Float64.(values))
+    F = promote_type(eltype(xs), eltype(ys), eltype(zs), eltype(values)) |> float
+    isolines(F.(xs), F.(ys), F.(zs), F.(values))
 end
 
 """
@@ -117,11 +148,11 @@ Each entry of the return vector is a NamedTuple with two Vector{Float64} fields 
 Vector{Int} field `id`. Each unique id marks one line.
 """
 function isolines(
-        xs::Vector{Float64},
-        ys::Vector{Float64},
-        zs::Matrix{Float64},
-        values::Vector{Float64})
-
+    xs::Vector{T},
+    ys::Vector{T},
+    zs::Matrix{T},
+    values::Vector{T},
+) where {T <: AbstractFloat}
     lenx = length(xs)
     leny = length(ys)
     nrow, ncol = size(zs)
@@ -131,29 +162,50 @@ function isolines(
 
     nvalues = length(values)
 
-    result = ccall((:isolines_impl, libisoband),
-        Ptr{ReturnValue},
-        (Ptr{Cdouble},
-            Cint,
-            Ptr{Cdouble},
-            Cint,
-            Ptr{Cdouble},
-            Cint,
-            Cint,
-            Ptr{Cdouble},
-            Cint),
-        xs, length(xs),
-        ys, length(ys),
-        zs, size(zs, 1), size(zs, 2),
-        values, nvalues)
-    
+    result = if (F = isoband_float_type(T)) ≡ Float64
+        ccall((:isolines_impl, libisoband), Ptr{ReturnValue{Cdouble}}, (
+                Ptr{Cdouble},
+                Cint,
+                Ptr{Cdouble},
+                Cint,
+                Ptr{Cdouble},
+                Cint,
+                Cint,
+                Ptr{Cdouble},
+                Cint,
+            ),
+            xs, length(xs),
+            ys, length(ys),
+            zs, size(zs, 1), size(zs, 2),
+            values, nvalues
+        )
+    elseif F ≡ Float32
+        ccall((:isolines32_impl, libisoband), Ptr{ReturnValue{Cfloat}}, (
+                Ptr{Cfloat},
+                Cint,
+                Ptr{Cfloat},
+                Cint,
+                Ptr{Cfloat},
+                Cint,
+                Cint,
+                Ptr{Cfloat},
+                Cint,
+            ),
+            xs, length(xs),
+            ys, length(ys),
+            zs, size(zs, 1), size(zs, 2),
+            values, nvalues
+        )
+    else
+        throw(ArgumentError("$F is invalid"))
+    end
 
-    returnvalues = unsafe_wrap(Vector{ReturnValue}, result, nvalues, own = true)
+    returnvalues = unsafe_wrap(Vector{ReturnValue{F}}, result, nvalues, own = true)
 
     groups = map(returnvalues) do rv
         n = rv.len
-        xsr = unsafe_wrap(Vector{Cdouble}, rv.xs, n, own = true)
-        ysr = unsafe_wrap(Vector{Cdouble}, rv.ys, n, own = true)
+        xsr = unsafe_wrap(Vector{F}, rv.xs, n, own = true)
+        ysr = unsafe_wrap(Vector{F}, rv.ys, n, own = true)
         idr = unsafe_wrap(Vector{Cint}, rv.ids, n, own = true)
         (x = xsr, y = ysr, id = idr)
     end
