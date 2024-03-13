@@ -2,7 +2,6 @@ module Isoband
 
 using isoband_jll
 
-
 export isobands, isolines
 
 struct ReturnValue{T}
@@ -14,6 +13,8 @@ end
 
 isoband_float_type(_::Type{Float64}) = Cdouble
 isoband_float_type(_::Type{Float32}) = Cfloat
+
+float_eltype(x) = eltype(x) |> float
 
 """
     isobands(xs, ys, zs, low::Real, high::Real)
@@ -33,7 +34,7 @@ function isobands(xs, ys, zs, low::T, high::T) where {T <: AbstractFloat}
 end
 
 function isobands(xs::AbstractVector, ys::AbstractVector, zs::AbstractMatrix, lows::AbstractVector, highs::AbstractVector)
-    F = promote_type(eltype(xs), eltype(ys), eltype(zs), eltype(lows), eltype(highs)) |> float
+    F = promote_type(float_eltype(xs), float_eltype(ys), float_eltype(zs), float_eltype(lows), float_eltype(highs))
     isobands(F.(xs), F.(ys), F.(zs), F.(lows), F.(highs))
 end
 
@@ -135,7 +136,7 @@ function isolines(xs, ys, zs, value::T) where {T <: AbstractFloat}
 end
 
 function isolines(xs::AbstractVector, ys::AbstractVector, zs::AbstractMatrix, values::AbstractVector)
-    F = promote_type(eltype(xs), eltype(ys), eltype(zs), eltype(values)) |> float
+    F = promote_type(float_eltype(xs), float_eltype(ys), float_eltype(zs), float_eltype(values))
     isolines(F.(xs), F.(ys), F.(zs), F.(values))
 end
 
